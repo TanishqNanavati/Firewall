@@ -79,6 +79,7 @@ struct ICMPHeader{
 #define ETH_P_ARP 0x0806
 
 // Print functions
+// debug
 void print_eth(const uint8_t* pkt, size_t size);
 void print_arp(const uint8_t* pkt, size_t size);
 void print_ip(const uint8_t* pkt, size_t size);
