@@ -93,7 +93,7 @@ void print_rules(void){
         else{
             struct in_addr addr = {.s_addr = rules[i].src_ip};
             char ip_str[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET,&addr,ip_str,INET6_ADDRSTRLEN);
+            inet_ntop(AF_INET,&addr,ip_str,INET_ADDRSTRLEN);
             printf("%s",ip_str);
         }
 
