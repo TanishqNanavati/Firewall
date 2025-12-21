@@ -1,9 +1,8 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <string.h>
-#include <pcap.h>
+#include <pcap.h>            // packet capture library   --> used to capture real time raw ethernet packets from linux - nic
 #include <arpa/inet.h>
 #include "parser.h"
 #include "firewall_rules.h"
@@ -28,8 +27,7 @@ void print_statistics(void) {
     printf("  Dropped:  %lu\n", packets_dropped);
 }
 
-void packet_handler(uint8_t *user, const struct pcap_pkthdr *header,
-                   const uint8_t *packet) {
+void packet_handler(uint8_t *user, const struct pcap_pkthdr *header,const uint8_t *packet) {
     (void)user;
     
     packets_total++;
@@ -62,9 +60,7 @@ void packet_handler(uint8_t *user, const struct pcap_pkthdr *header,
     else if (pkt_info.protocol == PROTO_UDP) proto = "UDP";
     else if (pkt_info.protocol == PROTO_ICMP) proto = "ICMP";
     
-    printf("%s | %s:%u -> %s:%u\n",
-           proto, src_ip_str, pkt_info.src_port,
-           dst_ip_str, pkt_info.dst_port);
+    printf("%s | %s:%u -> %s:%u\n",proto, src_ip_str, pkt_info.src_port,dst_ip_str, pkt_info.dst_port);
     
     if (verbose_mode && action == DROP) {
         printf("\n--- Dropped Packet Details ---\n");
@@ -95,9 +91,9 @@ void print_usage(const char *prog_name) {
 }
 
 int main(int argc, char *argv[]) {
-    char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t *handle;
-    char *dev = NULL;
+    char errbuf[PCAP_ERRBUF_SIZE];   // buffer to store errors from libpcap
+    pcap_t *handle;                  // pointer to the pcap capture session
+    char *dev = NULL;                // the network interface you’ll capture traffic on (e.g., eth0)
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0) {
