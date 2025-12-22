@@ -110,9 +110,16 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, signal_handler);
 
     if (dev == NULL) {
-        dev = pcap_lookupdev(errbuf);
-        if (dev == NULL) {
-            fprintf(stderr, "Error: %s\n", errbuf);
+        pcap_if_t *alldevs;
+        if (pcap_findalldevs(&alldevs, errbuf) == -1) {
+            fprintf(stderr, "Error finding devices: %s\n", errbuf);
+            return 1;
+        }
+        if (alldevs != NULL) {
+            dev = strdup(alldevs->name); // Make a copy of the name
+            pcap_freealldevs(alldevs);
+        } else {
+            fprintf(stderr, "No devices found.\n");
             return 1;
         }
     }
