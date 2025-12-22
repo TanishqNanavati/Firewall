@@ -1,162 +1,148 @@
+
+#define _DEFAULT_SOURCE
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <signal.h>
 #include <string.h>
-#include <pcap.h>            // packet capture library   --> used to capture real time raw ethernet packets from linux - nic
+#include <signal.h>
+#include <pcap.h>
 #include <arpa/inet.h>
+
 #include "parser.h"
 #include "firewall_rules.h"
 #include "logger.h"
 
-static volatile int keep_running = 1;
-static int verbose_mode = 0;
-static unsigned long packets_accepted = 0;
-static unsigned long packets_dropped = 0;
-static unsigned long packets_total = 0;
+/* ================= GLOBAL STATE ================= */
 
-void signal_handler(int sig) {
+static volatile sig_atomic_t keep_running = 1;
+static volatile sig_atomic_t reload_config = 0;
+
+static unsigned long total_packets   = 0;
+static unsigned long accepted_packets = 0;
+static unsigned long dropped_packets  = 0;
+
+/* ================= SIGNAL HANDLERS ================= */
+
+static void handle_sigint(int sig) {
     (void)sig;
     keep_running = 0;
-    printf("\nShutting down...\n");
 }
 
-void print_statistics(void) {
-    printf("\nStatistics:\n");
-    printf("  Total:    %lu\n", packets_total);
-    printf("  Accepted: %lu\n", packets_accepted);
-    printf("  Dropped:  %lu\n", packets_dropped);
+static void handle_sighup(int sig) {
+    (void)sig;
+    reload_config = 1;
 }
 
-void packet_handler(uint8_t *user, const struct pcap_pkthdr *header,const uint8_t *packet) {
+/* ================= PACKET CALLBACK ================= */
+
+static void packet_handler(
+    uint8_t *user,
+    const struct pcap_pkthdr *header,
+    const uint8_t *packet
+) {
     (void)user;
-    
-    packets_total++;
-    
-    packet_info_t pkt_info;
-    
-    if (parse_packet_info(packet, header->len, &pkt_info) < 0) {
-        return;
+    total_packets++;
+
+    packet_info_t pkt;
+
+    if (parse_packet_info(packet, header->caplen, &pkt) != 0) {
+        return; // not an IPv4 packet or malformed
     }
 
-    action_t action = evaluate_packet(&pkt_info);
-    
+    action_t action = evaluate_packet(&pkt);
+
     if (action == ACCEPT) {
-        packets_accepted++;
+        accepted_packets++;
     } else {
-        packets_dropped++;
+        dropped_packets++;
     }
-    
-    printf("[%s] ", action == ACCEPT ? "ACCEPT" : "DROP  ");
-    
-    char src_ip_str[INET_ADDRSTRLEN];
-    char dst_ip_str[INET_ADDRSTRLEN];
-    struct in_addr src = {.s_addr = htonl(pkt_info.src_ip)};
-    struct in_addr dst = {.s_addr = htonl(pkt_info.dst_ip)};
-    inet_ntop(AF_INET, &src, src_ip_str, INET_ADDRSTRLEN);
-    inet_ntop(AF_INET, &dst, dst_ip_str, INET_ADDRSTRLEN);
-    
-    const char *proto = "???";
-    if (pkt_info.protocol == PROTO_TCP) proto = "TCP";
-    else if (pkt_info.protocol == PROTO_UDP) proto = "UDP";
-    else if (pkt_info.protocol == PROTO_ICMP) proto = "ICMP";
-    
-    printf("%s | %s:%u -> %s:%u\n",proto, src_ip_str, pkt_info.src_port,dst_ip_str, pkt_info.dst_port);
-    
-    if (verbose_mode && action == DROP) {
-        printf("\n--- Dropped Packet Details ---\n");
-        print_eth(packet, header->len);
-        print_ip(packet, header->len);
-        
-        uint8_t ihl = ((struct IPv4Header*)(packet + sizeof(struct EthHeader)))->ver_ihl & 0x0F;
-        size_t ip_hdr_len = ihl * 4;
-        
-        if (pkt_info.protocol == PROTO_TCP) {
-            print_tcp(packet, header->len, ip_hdr_len);
-        } else if (pkt_info.protocol == PROTO_UDP) {
-            print_udp(packet, header->len, ip_hdr_len);
-        } else if (pkt_info.protocol == PROTO_ICMP) {
-            print_icmp(packet, header->len, ip_hdr_len);
-        }
-        printf("------------------------------\n\n");
-    }
-    
-    log_decision(&pkt_info, action);
+
+    log_decision(&pkt, action);
 }
 
-void print_usage(const char *prog_name) {
-    printf("Usage: %s [options] [interface]\n", prog_name);
-    printf("Options:\n");
-    printf("  -v    Verbose mode\n");
-    printf("  -h    Help\n");
+/* ================= STATS ================= */
+
+static void print_statistics(void) {
+    printf("\n========== Firewall Statistics ==========\n");
+    printf("Total packets   : %lu\n", total_packets);
+    printf("Accepted packets: %lu\n", accepted_packets);
+    printf("Dropped packets : %lu\n", dropped_packets);
+    printf("=========================================\n");
 }
+
+/* ================= MAIN ================= */
 
 int main(int argc, char *argv[]) {
-    char errbuf[PCAP_ERRBUF_SIZE];   // buffer to store errors from libpcap
-    pcap_t *handle;                  // pointer to the pcap capture session
-    char *dev = NULL;                // the network interface you’ll capture traffic on (e.g., eth0)
-    
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-v") == 0) {
-            verbose_mode = 1;
-        } else if (strcmp(argv[i], "-h") == 0) {
-            print_usage(argv[0]);
-            return 0;
-        } else if (argv[i][0] != '-') {
-            dev = argv[i];
-        }
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handle = NULL;
+    char *interface = NULL;
+
+    /* ---- Parse CLI ---- */
+    if (argc > 1) {
+        interface = argv[1];
     }
 
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    /* ---- Signals ---- */
+    signal(SIGINT, handle_sigint);
+    signal(SIGTERM, handle_sigint);
+    signal(SIGHUP, handle_sighup);   // reload rules
 
-    if (dev == NULL) {
+    /* ---- Select interface if not provided ---- */
+    if (!interface) {
         pcap_if_t *alldevs;
-        if (pcap_findalldevs(&alldevs, errbuf) == -1) {
-            fprintf(stderr, "Error finding devices: %s\n", errbuf);
+        if (pcap_findalldevs(&alldevs, errbuf) == -1 || !alldevs) {
+            fprintf(stderr, "pcap_findalldevs failed: %s\n", errbuf);
             return 1;
         }
-        if (alldevs != NULL) {
-            dev = strdup(alldevs->name); // Make a copy of the name
-            pcap_freealldevs(alldevs);
-        } else {
-            fprintf(stderr, "No devices found.\n");
-            return 1;
-        }
+        interface = strdup(alldevs->name);
+        pcap_freealldevs(alldevs);
     }
 
-    printf("Device: %s\n", dev);
+    printf("Using interface: %s\n", interface);
 
+    /* ---- Init subsystems ---- */
     init_rules();
     init_logger("firewall.log");
+
     print_rules();
 
-    handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-    if (handle == NULL) {
-        fprintf(stderr, "Error: %s\n", errbuf);
-        fprintf(stderr, "Try: sudo %s\n", argv[0]);
+    /* ---- Open capture ---- */
+    handle = pcap_open_live(interface, BUFSIZ, 1, 1000, errbuf);
+    if (!handle) {
+        fprintf(stderr, "pcap_open_live failed: %s\n", errbuf);
         return 1;
     }
 
+    /* ---- Filter only IPv4 ---- */
     struct bpf_program fp;
-    char filter_exp[] = "ip";
-    bpf_u_int32 net = 0;
-    
-    if (pcap_compile(handle, &fp, filter_exp, 0, net) != -1) {
+    if (pcap_compile(handle, &fp, "ip", 1, PCAP_NETMASK_UNKNOWN) == 0) {
         pcap_setfilter(handle, &fp);
         pcap_freecode(&fp);
     }
 
-    printf("\nMonitoring traffic... (Ctrl+C to stop)\n\n");
+    printf("Firewall running (Ctrl+C to stop, SIGHUP to reload rules)\n");
 
+    /* ---- Main loop ---- */
     while (keep_running) {
-        pcap_dispatch(handle, 10, packet_handler, NULL);
+
+        if (reload_config) {
+            printf("\nReloading firewall rules...\n");
+            reload_rules();
+            print_rules();
+            reload_config = 0;
+        }
+
+        pcap_dispatch(handle, 32, packet_handler, NULL);
     }
 
+    /* ---- Cleanup ---- */
     pcap_close(handle);
     close_logger();
+
     print_statistics();
-    
-    printf("\nLog: firewall.log\n");
-    
+    print_rule_statistics();
+
+    printf("Firewall stopped.\n");
     return 0;
 }

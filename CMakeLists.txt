@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(FIREWALL C)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -pthread")
 
 include_directories(include)
 
@@ -13,5 +13,4 @@ add_executable(firewall
     src/logger.c
 )
 
-# Link pcap library
-target_link_libraries(firewall pcap)
+target_link_libraries(firewall pcap pthread)
