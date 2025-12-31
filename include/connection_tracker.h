@@ -102,10 +102,13 @@ typedef struct {
 void init_connection_tracker(void);
 
 
-// cleanup
+// cleanup connection tracker
 
 void cleanup(void);
 
+// cleanup expired connections
+
+void cleanup_expired_connection(void);
 
 // track a packet and update connection state
 
