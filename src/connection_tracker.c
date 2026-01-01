@@ -289,64 +289,6 @@ conn_state_t track_connection(const packet_info_t *pkt,const uint8_t *packet,siz
     return entry->conn_state;
 }
 
-// void cleanup_expired_connection(void){
-//     time_t now = time(NULL);
-//     int cleaned = 0;
-
-//     pthread_rwlock_wrlock(&conn_lock);
-
-//     for(int i=0;i<CONNECTION_TABLE_SIZE;i++){
-//         connection_entry_t **entry_ptr = &conn_table.table[i];
-
-//         while(*entry_ptr){
-//             connection_entry_t *entry = *entry_ptr;
-//             time_t age = now - entry->last_seen;
-//             int shd_expire = 0;
-
-
-//             if(entry->key.protocol == PROTO_TCP){
-//                 switch(entry->tcp_state){
-//                     case TCP_STATE_ESTABLISHED :
-//                         shd_expire = (age > TCP_TIMEOUT_ESTABLISHED);
-//                         break;
-//                     case TCP_STATE_SYN_SENT:
-//                     case TCP_STATE_SYN_RECEIVED:
-//                         shd_expire = (age > TCP_TIMEOUT_SYN_SENT);
-//                         break;
-//                     case TCP_STATE_FIN_WAIT_1:
-//                     case TCP_STATE_FIN_WAIT_2:
-//                     case TCP_STATE_CLOSING:
-//                     case TCP_STATE_LAST_ACK:
-//                     case TCP_STATE_TIME_WAIT:
-//                         shd_expire = (age > TCP_TIMEOUT_FIN_WAIT);
-//                         break;
-//                     case TCP_STATE_CLOSED:
-//                         shd_expire = (age > TCP_TIMEOUT_CLOSED);
-//                         break;
-//                     default:
-//                         shd_expire = (age > TCP_TIMEOUT_SYN_SENT);
-//                         break;
-//                 }
-//             }
-
-//             else if(entry->key.protocol == PROTO_UDP) shd_expire = (age > UDP_TIMEOUT);
-//             else if(entry->key.protocol == PROTO_ICMP) shd_expire = (age > ICMP_TIMEOUT);
-
-//             if(shd_expire){
-//                 *entry_ptr = entry->next;
-//                 free(entry);
-//                 conn_table.active_connections--;
-//                 conn_table.expired_connections++;
-//                 cleaned++;
-//             }else entry_ptr = &entry->next;
-//         }
-//     }
-
-//     pthread_rwlock_unlock(&conn_lock);
-
-//     if(cleaned > 0) printf("Clenaed up %d expired connections\n",cleaned);
-// }
-
 void cleanup_expired_connection(void) {
     time_t now = time(NULL);
     int cleaned = 0;
