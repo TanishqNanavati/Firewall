@@ -1,214 +1,169 @@
-🔰 PHASE 0 — FOUNDATION (Do Once)
+🛡️ Stateful Firewall in C (Userspace)
 
-Deeply understand packet structure
+A userspace stateful firewall implemented in C using libpcap, supporting TCP connection tracking, rule-based filtering, interactive control, and logging.
 
-Ethernet → IPv4/IPv6 → TCP / UDP / ICMP
+This project demonstrates low-level networking, OS concepts, and data-structure design, including TCP finite-state machines and connection tables.
 
-Header fields, flags, checksums, fragmentation
+📌 Features
+🔥 Packet Capture
 
-Understand Linux packet flow
+Uses libpcap to capture live traffic from a network interface
 
-NIC → driver → kernel → network stack → user space
+Filters IPv4 traffic using BPF (ip)
 
-Where packets can be intercepted
+Supports TCP, UDP, ICMP, and ARP parsing
 
-Learn raw packet capture mechanisms
+🧠 Stateful Connection Tracking
 
-libpcap vs raw sockets vs AF_PACKET
+Implements a TCP Finite State Machine (FSM):
 
-Incoming vs outgoing packets
+SYN_SENT, SYN_RECEIVED, ESTABLISHED
 
-✅ Outcome: You can capture and parse packets correctly.
+FIN_WAIT, CLOSING, TIME_WAIT, CLOSED
 
-🟢 PHASE 1 — BASIC FIREWALL (Stateless)
-Goal: Decide fate of individual packets
+Tracks connections using a 5-tuple:
 
-Capture packets at the lowest possible layer
+(src_ip, dst_ip, src_port, dst_port, protocol)
 
-Parse:
 
-Ethernet header
+Bidirectional matching (client ↔ server)
 
-IP header
+Per-connection statistics:
 
-TCP / UDP / ICMP headers
+Packets & bytes (both directions)
 
-Extract:
+Creation & last-seen timestamps
 
-Source IP
+📋 Firewall Rule Engine
 
-Destination IP
+Rule-based packet filtering with priorities
 
-Source port
+Match conditions:
 
-Destination port
+Source IP (CIDR)
 
-Protocol
+Destination IP (CIDR)
 
-Implement static rules:
+Source / Destination port (single or range)
 
-Allow / Drop based on IP, port, protocol
+Protocol (TCP / UDP / ICMP)
 
-Enforce decisions:
+Actions:
 
-Accept packet
+ACCEPT
 
-Drop packet
+DROP
 
-Log decisions (basic logging)
+REJECT (placeholder for future extension)
 
-✅ Outcome: Stateless packet-filtering firewall
+Rules loaded from config file:
 
-🟡 PHASE 2 — RULE ENGINE (Intermediate)
-Goal: Flexible and scalable policy handling
+firewall_rules.conf
 
-Design rule structure:
 
-Match fields
+Hit-count statistics per rule
 
-Priority
+🔄 Stateful Enforcement
 
-Action
+Packets are:
 
-Implement rule evaluation order
+Parsed
 
-Add support for:
+Passed through connection tracker
 
-Port ranges
+Evaluated by firewall rules
 
-IP ranges (CIDR)
+Invalid TCP states (e.g., data without handshake) are dropped
 
-Support rule reload without restart
+UDP/ICMP connections become ESTABLISHED after bidirectional traffic
 
-Separate:
+⏱️ Connection Timeouts & Cleanup
 
-Packet capture
+Automatic expiration based on protocol and state:
 
-Rule evaluation
+Protocol	State	Timeout
+TCP	ESTABLISHED	2 hours
+TCP	SYN states	2 minutes
+TCP	FIN / CLOSE	2 minutes
+UDP	Any	3 minutes
+ICMP	Any	30 seconds
 
-Action execution
+Periodic cleanup prevents memory leaks
 
-✅ Outcome: Configurable firewall with real rule logic
+Statistics for expired connections maintained
 
-🟠 PHASE 3 — STATEFUL FIREWALL (Intermediate → Advanced)
-Goal: Understand connections, not just packets
+🖥️ Interactive Control (Runtime)
 
-Implement connection table:
+Non-blocking interactive commands:
 
-5-tuple (src/dst IP, src/dst port, protocol)
+Key	Action
+h	Show help menu
+r	Reload firewall rules
+p	Print firewall rules
+c	Show active connection table
+s	Show packet statistics
+t	Show connection statistics
+x	Cleanup expired connections
+q	Quit firewall
+📡 Signal Support
+Signal	Effect
+SIGINT	Graceful shutdown
+SIGHUP	Reload firewall rules
+SIGUSR1	Print connection table
 
-Track TCP states:
+Example:
 
-SYN, SYN-ACK, ESTABLISHED, FIN, RST
+kill -USR1 <pid>
 
-Allow packets based on state:
+📝 Logging
 
-New connections
+All decisions are logged to firewall.log
 
-Established connections
+Log format:
 
-Implement timeouts for states
+[YYYY-MM-DD HH:MM:SS] ACTION | SRC_IP:SRC_PORT -> DST_IP:DST_PORT [PROTO]
 
-Handle half-open connections
+🧱 Project Architecture
+.
+├── main.c                 # Main event loop & control
+├── parser.c / parser.h    # Packet parsing (Ethernet/IP/TCP/UDP/ICMP)
+├── firewall_rules.c/.h    # Rule engine & config parsing
+├── connection_tracker.c/.h # Stateful conntrack + TCP FSM
+├── logger.c / logger.h    # Firewall logging
+├── firewall_rules.conf    # Rule configuration file
+└── README.md
 
-✅ Outcome: Stateful firewall (like real-world firewalls)
+⚙️ Build Instructions
+Requirements
 
-🔵 PHASE 4 — ADVANCED PACKET HANDLING
-Goal: Handle real network behavior
+Linux
 
-Handle fragmented IP packets
+GCC
 
-Validate packet correctness:
+libpcap
 
-Header lengths
+pthreads
 
-Invalid flags
+Install dependencies:
 
-Detect malformed packets
+sudo apt install libpcap-dev
 
-Implement basic ICMP handling
+Compile
+gcc *.c -o firewall -lpcap -lpthread
 
-Reject packets properly (RST / ICMP)
+▶️ Usage
 
-✅ Outcome: Robust, attack-resistant firewall
+Run with root privileges:
 
-🟣 PHASE 5 — PERFORMANCE & SCALE (Advanced)
-Goal: Make it fast and safe
+sudo ./firewall eth0
 
-Optimize rule lookup:
 
-Hash tables
+Replace eth0 with your network interface.
 
-Prefix trees (for IP)
+🧪 Example Rules (firewall_rules.conf)
+10 DROP ANY ANY ANY 22 TCP Block SSH
+20 ACCEPT ANY ANY ANY 80 TCP Allow HTTP
+30 ACCEPT ANY ANY ANY 443 TCP Allow HTTPS
+40 ACCEPT ANY ANY ANY 53 UDP Allow DNS
+50 ACCEPT ANY ANY ANY ANY ICMP Allow ICMP
 
-Optimize memory usage:
-
-Fixed-size structures
-
-Avoid dynamic allocation per packet
-
-Reduce packet copies
-
-Implement basic rate limiting
-
-Measure throughput and latency
-
-✅ Outcome: High-performance firewall core
-
-🔴 PHASE 6 — KERNEL INTEGRATION (Advanced)
-Goal: Move closer to production-grade firewall
-
-Study Netfilter architecture
-
-Understand hook points:
-
-PREROUTING
-
-INPUT
-
-FORWARD
-
-OUTPUT
-
-POSTROUTING
-
-Re-implement your logic inside kernel space
-
-Handle synchronization & locking
-
-Expose user-space control interface
-
-✅ Outcome: Kernel-level firewall module
-
-⚫ PHASE 7 — DEEP INSPECTION (Optional / Expert)
-Goal: Application awareness
-
-Inspect payload safely
-
-Understand application protocols (HTTP, DNS)
-
-Implement protocol parsers
-
-Enforce application-level rules
-
-Protect against evasion techniques
-
-✅ Outcome: Deep Packet Inspection firewall
-
-🧠 FINAL MENTAL CHECKPOINTS
-
-You’re doing it right if you can:
-
-Draw packet flow inside Linux
-
-Explain why stateless firewalls fail
-
-Describe TCP connection tracking
-
-Reason about performance bottlenecks
-
-Crash your firewall safely and debug it
-
-🏁 Suggested Build Order (One Line)
-
-Packet capture → Stateless filter → Rule engine → Stateful tracking → Robust handling → Performance → Kernel integration
